@@ -1,0 +1,216 @@
+"""Compare contents of files.
+
+Tool that searches for common lines in provided text lists.
+Output to default location in same directory as script or specified outputname.
+
+"""
+
+import argparse
+import datetime
+import os
+import sys
+
+
+def fileToList(inputFile):
+    """Conver file contents to a list.
+
+    Parameters
+    ----------
+    inputFile: string, required
+        Name of file to convert to a list.
+
+    Return
+    ------
+    list
+        List object of lines from inputFile.
+
+    """
+    try:
+        os.path.isfile(inputFile)
+    except IOError:
+        inputFile = os.path.abspath(os.path.dirname(__file__)) + "/" + inputFile
+    lines = []
+    with open(inputFile) as file:
+        for line in file:
+            line = line.strip()
+            lines.append(line)
+    return lines
+
+
+def createOutputFile(outputFile, outputList, hide_index=False):
+    """Output contents to a file.
+
+    Parameters
+    ----------
+    outputFile: string, required
+        Name of file to output to.
+    outputList: list, required
+        Contents to write to file.
+
+    """
+    if os.path.isfile(outputFile):
+        FilePath = outputFile
+        modifiedTime = os.path.getmtime(outputFile)
+        timeStamp = datetime.datetime.fromtimestamp(modifiedTime).strftime("%b-%d-%y-%H:%M:%S")
+        os.rename(FilePath, FilePath + "_" + timeStamp + ".copy")
+        print("Moving " + outputFile + " to " + FilePath + "_" + timeStamp)
+    with open(outputFile, "a") as file:
+        for idx, val in enumerate(outputList):
+            if hide_index:
+                output = "{}".format(val)
+            else:
+                output = "{}. {}".format(idx + 1, val)
+            file.write("{}\n".format(output))
+
+
+def inclusiveProcess(args):
+    """Process arguments for inclusive compare.
+
+    Parameters
+    ----------
+    args: dictionary, required
+        Collected arguments from command line.
+
+    """
+    if len(args.files) > 1:
+        file_contents = []
+        largest_list_index = 0
+        largest_list_size = 0
+        index = 0
+        for f in args.files:
+            t_list = fileToList(f)
+            if args.debug:
+                print "List size from " + f + ": " + str(len(t_list))
+            if len(t_list) > largest_list_size:
+                largest_list_index = index
+                largest_list_size = len(t_list)
+            index += 1
+            file_contents.append(list(t_list))
+        if args.debug:
+            print "Number of lists created: " + str(len(file_contents))
+            print "Largest list (" + str(largest_list_size) + ") " + "at index: " + str(largest_list_index)
+
+        seenList = set()
+        largest_list = file_contents.pop(largest_list_index)
+        for l in file_contents:
+            for i in largest_list:
+                if args.debug:
+                    print "Searching for " + str(i) + " in " + str(l)
+                if i in l:
+                    seenList.add(i)
+        if len(seenList) > 0:
+            if args.sort:
+                seenList = sorted(seenList)
+            sendOuput(outputList=list(seenList), outputFile=args.output, hide_index=args.hide_index)
+        else:
+            print "No common lines found."
+    else:
+        print "Not enough files provided."
+
+
+def exclusiveProcess(args):
+    """Process arguments for exclusive compare.
+
+    Parameters
+    ----------
+    args: dictionary, required
+        Collected arguments from command line.
+
+    """
+    main_list = fileToList(args.primary)
+    if args.debug:
+        print "List size from " + str(args.primary) + ": " + str(len(main_list))
+
+    other_lists = []
+    for f in args.secondary:
+        t_list = fileToList(f)
+        if args.debug:
+            print "List size from " + f + ": " + str(len(t_list))
+        other_lists.append(list(t_list))
+
+    seenList = set()
+    for l in other_lists:
+        for i in main_list:
+            if args.debug:
+                print "Searching for " + str(i) + " in " + str(l)
+            if i in l:
+                seenList.add(i)
+
+    unseenList = set()
+    for i in main_list:
+        if i in seenList:
+            if args.debug:
+                print str(i) + " exists in primary...skipping"
+        else:
+            unseenList.add(i)
+    if args.debug:
+        print "seenList size: " + str(len(seenList))
+        print "unseenList size: " + str(len(unseenList))
+
+    if len(unseenList) > 0:
+        if args.sort:
+            unseenList = sorted(unseenList)
+        sendOuput(outputList=list(unseenList), outputFile=args.output, hide_index=args.hide_index)
+    else:
+        print "No missing lines found."
+
+
+def sendOuput(outputList, outputFile=None, hide_index=False):
+    """Process output of results.
+
+    Parameters
+    ----------
+    outputList: list, required
+        List of results to output.
+    outputFile: string, optional
+        If provided, then output to file, otherwise output to stdout.
+    hide_index: boolean, optional
+        Flag to hide index on outputs.
+
+    """
+    if outputFile:
+        createOutputFile(outputFile=outputFile, outputList=outputList, hide_index=hide_index)
+    else:
+        for idx, val in enumerate(outputList):
+            if hide_index:
+                output = "{}".format(val)
+            else:
+                output = "{}. {}".format(idx + 1, val)
+            print(output)
+
+
+def main(self, *argv, **kwargs):
+    """Program entry method.
+
+    Parameters
+    ----------
+    *argv:
+        Positional arguments.
+    **kwargs:
+        Keyword arguments.
+
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", "-o", type=str, help="Output filename (absolute or relative).")
+    parser.add_argument("--sort", "-s", action="store_true", help="Sort the output.")
+    parser.add_argument("--hide-index", "-i", action="store_true", help="Hide the index on output.")
+    parser.add_argument("--debug", "-d", action="store_true", help="Enable debugging.")
+    subparse = parser.add_subparsers()
+
+    inclusive = subparse.add_parser("inclusive", help="Find common lines amongst files provided.")
+    inclusive.add_argument("files", type=str, help="List of files. Minumum 2 required.", nargs="+")
+    inclusive.set_defaults(func=inclusiveProcess)
+
+    exclusive = subparse.add_parser("exclusive", help="Fine lines not in any of files provided.")
+    exclusive.add_argument("primary", type=str, help="File list with entries to search for.")
+    exclusive.add_argument("secondary", type=str, nargs="+", help="Files to check against.")
+    exclusive.set_defaults(func=exclusiveProcess)
+
+    namespace_args = parser.parse_args()
+    if namespace_args.debug:
+        print "namespace_args: " + str(namespace_args)
+    namespace_args.func(namespace_args)
+
+
+if __name__ == "__main__":
+    main(sys.argv)
